@@ -4,6 +4,8 @@ import pandas as pd
 from datetime import datetime
 from tqdm import tqdm  # Para la barra de progreso
 import streamlit as st
+import zipfile
+import shutil
 
 # ======================
 # CONFIGURACIÓN
@@ -46,7 +48,7 @@ def registrar_log_local(msg):
 # ======================
 # DESCARGA DE ARCHIVOS FTP
 # ======================
-def download_all_files():
+def download_all_files(progress_bar):
     ftp = FTP(FTP_HOST)
     ftp.login(FTP_USER, FTP_PASS)
 
@@ -65,25 +67,22 @@ def download_all_files():
             continue
 
         # Barra de progreso para la descarga
-        with tqdm(total=len(archivos_txt), desc=f"Descargando archivos de {dir_path}", unit="archivo") as pbar:
-            for filename in archivos_txt:
-                local_path = os.path.join(TXT_DIR, filename)
-                try:
-                    with open(local_path, 'wb') as f:
-                        ftp.retrbinary(f'RETR {filename}', f.write)
-                    pbar.set_postfix({"archivo": filename})  # Mostrar el nombre del archivo descargado
-                    pbar.update(1)  # Avanzar en la barra de progreso
-                except Exception as e:
-                    registrar_log_local(f"Error descargando {filename}: {e}")
-                    pbar.set_postfix({"error": filename})  # Mostrar el nombre del archivo con error
-                    pbar.update(1)  # Avanzar en la barra de progreso
+        for idx, filename in enumerate(archivos_txt):
+            local_path = os.path.join(TXT_DIR, filename)
+            try:
+                with open(local_path, 'wb') as f:
+                    ftp.retrbinary(f'RETR {filename}', f.write)
+                progress_bar.progress((idx + 1) / len(archivos_txt))
+            except Exception as e:
+                registrar_log_local(f"Error descargando {filename}: {e}")
+                continue
 
     ftp.quit()
 
 # ======================
 # GENERAR EXCEL UNIFICADO POR CARPETA
 # ======================
-def generar_excels():
+def generar_excels(progress_bar):
     for dir_path, conf in FTP_CONFIG.items():
         prefix = conf["prefix"]
         output_path = os.path.join(XLSX_DIR, conf["output_file"])
@@ -98,61 +97,78 @@ def generar_excels():
         archivos_procesados = 0
         errores = 0
 
-        # Barra de progreso para el procesamiento de archivos
-        with tqdm(total=len(archivos_txt), desc=f"Procesando archivos en {dir_path}", unit="archivo") as pbar:
-            for archivo in archivos_txt:
-                file_path = os.path.join(TXT_DIR, archivo)
-                df = None
+        for idx, archivo in enumerate(archivos_txt):
+            file_path = os.path.join(TXT_DIR, archivo)
+            df = None
 
-                for encoding in ["utf-8", "cp1252", "latin-1"]:
-                    try:
-                        df = pd.read_csv(file_path, sep=";", encoding=encoding)
-                        registrar_log_local(f"{archivo} leído correctamente con {encoding}")
-                        break
-                    except Exception as e:
-                        registrar_log_local(f"Error leyendo {archivo} con {encoding}: {e}")
+            for encoding in ["utf-8", "cp1252", "latin-1"]:
+                try:
+                    df = pd.read_csv(file_path, sep=";", encoding=encoding)
+                    registrar_log_local(f"{archivo} leído correctamente con {encoding}")
+                    break
+                except Exception as e:
+                    registrar_log_local(f"Error leyendo {archivo} con {encoding}: {e}")
 
-                if df is None:
-                    registrar_log_local(f"No se pudo leer el archivo {archivo}")
-                    errores += 1
-                    pbar.set_postfix({"error": archivo})  # Mostrar el archivo con error en la barra
-                    pbar.update(1)  # Avanzar en la barra
-                    continue
+            if df is None:
+                registrar_log_local(f"No se pudo leer el archivo {archivo}")
+                errores += 1
+                continue
 
-                df_total = pd.concat([df_total, df], ignore_index=True)
-                archivos_procesados += 1
-                # Actualizar la barra de progreso con el número de filas procesadas
-                pbar.set_postfix({"archivo": archivo, "filas procesadas": len(df_total)})
-                pbar.update(1)  # Avanzar en la barra
+            df_total = pd.concat([df_total, df], ignore_index=True)
+            archivos_procesados += 1
+            progress_bar.progress((idx + 1) / len(archivos_txt))
 
         if not df_total.empty:
             # Guardar archivo Excel
             df_total.to_excel(output_path, index=False)
             total_filas = len(df_total)
             registrar_log_local(f"Excel generado: {output_path} ({total_filas} filas)")
-            st.write(f"Excel generado: {output_path} ({total_filas} filas)")
         else:
             registrar_log_local(f"No se generó ningún Excel para {dir_path} debido a errores.")
-            st.write(f"No se generó ningún Excel para {dir_path} debido a errores.")
 
-        registrar_log_local(f"Archivos procesados correctamente: {archivos_procesados}")
-        registrar_log_local(f"Errores durante el proceso: {errores}")
+    return archivos_procesados, errores
+
+# ======================
+# CREAR ZIPPED DIRECTORIOS PARA DESCARGA
+# ======================
+def crear_zip_directorios():
+    zip_txt = shutil.make_archive(TXT_DIR, 'zip', TXT_DIR)
+    zip_xlsx = shutil.make_archive(XLSX_DIR, 'zip', XLSX_DIR)
+    return zip_txt, zip_xlsx
 
 # ======================
 # STREAMLIT INTERFAZ
 # ======================
 def run_streamlit_app():
     st.title("Procesamiento de Archivos FTP y Generación de Excel")
-    
-    if st.button('Descargar Archivos FTP'):
-        st.write("Iniciando descarga de archivos...")
-        download_all_files()
-        st.write("Archivos descargados con éxito.")
-    
-    if st.button('Generar Archivos Excel'):
-        st.write("Generando archivos Excel...")
-        generar_excels()
-        st.write("Archivos Excel generados.")
+
+    if st.button('Ejecutar todo el proceso'):
+        # Barra de progreso general
+        progress_bar = st.progress(0)
+
+        try:
+            # Paso 1: Descargar archivos TXT
+            st.write("Iniciando descarga de archivos...")
+            download_all_files(progress_bar)
+            st.write("Archivos TXT descargados con éxito.")
+
+            # Paso 2: Generar los archivos Excel
+            st.write("Generando archivos Excel...")
+            archivos_procesados, errores = generar_excels(progress_bar)
+            st.write(f"Archivos Excel generados. Archivos procesados: {archivos_procesados}, Errores: {errores}")
+
+            # Paso 3: Crear los archivos comprimidos para la descarga
+            st.write("Creando archivos comprimidos para la descarga...")
+            zip_txt, zip_xlsx = crear_zip_directorios()
+
+            # Paso 4: Enlaces de descarga
+            st.write("Descarga disponible:")
+            st.download_button("Descargar TXT", zip_txt, file_name="txt_files.zip")
+            st.download_button("Descargar XLSX", zip_xlsx, file_name="xlsx_files.zip")
+
+        except Exception as e:
+            st.error(f"Ocurrió un error durante el proceso: {e}")
+            registrar_log_local(f"Error general: {e}")
 
 # ======================
 # EJECUCIÓN STREAMLIT

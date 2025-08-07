@@ -140,16 +140,17 @@ def crear_zip_completo():
     zip_name = "leads_completo.zip"
 
     with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Agregar archivos .txt
+        # Agregar archivos .txt en la subcarpeta "txt_files"
         for root, dirs, files in os.walk(TXT_DIR):
             for file in files:
                 if file.endswith(".txt"):
-                    zipf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), TXT_DIR))
-        # Agregar archivos .xlsx
+                    zipf.write(os.path.join(root, file), os.path.join("txt_files", os.path.relpath(os.path.join(root, file), TXT_DIR)))
+        
+        # Agregar archivos .xlsx en la subcarpeta "xlsx_files"
         for root, dirs, files in os.walk(XLSX_DIR):
             for file in files:
                 if file.endswith(".xlsx"):
-                    zipf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), XLSX_DIR))
+                    zipf.write(os.path.join(root, file), os.path.join("xlsx_files", os.path.relpath(os.path.join(root, file), XLSX_DIR)))
 
     return zip_name
 

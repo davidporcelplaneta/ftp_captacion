@@ -136,8 +136,9 @@ def generar_excels(progress_bar):
 # CREAR UN ARCHIVO ZIP QUE CONTENGA TANTO TXT COMO XLSX
 # ======================
 def crear_zip_completo():
-    # Creamos un directorio temporal para agrupar los archivos .txt y .xlsx
-    zip_name = "./leads_completo.zip"
+    # Crear un archivo zip en memoria y agregar los archivos .txt y .xlsx
+    zip_name = "leads_completo.zip"
+
     with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
         # Agregar archivos .txt
         for root, dirs, files in os.walk(TXT_DIR):
@@ -149,7 +150,7 @@ def crear_zip_completo():
             for file in files:
                 if file.endswith(".xlsx"):
                     zipf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), XLSX_DIR))
-    
+
     return zip_name
 
 # ======================
@@ -179,7 +180,8 @@ def run_streamlit_app():
 
             # Paso 4: Enlace de descarga del archivo zip
             st.write("Descarga disponible:")
-            st.download_button("Descargar todos los archivos", zip_completo, file_name="leads_completo.zip")
+            with open(zip_completo, "rb") as f:
+                st.download_button("Descargar todos los archivos", f, file_name="leads_completo.zip")
 
         except Exception as e:
             st.error(f"Ocurrió un error durante el proceso: {e}")

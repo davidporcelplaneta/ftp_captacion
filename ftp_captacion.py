@@ -2,7 +2,6 @@ import os
 from ftplib import FTP
 import pandas as pd
 from datetime import datetime
-from tqdm import tqdm  # Para la barra de progreso
 import streamlit as st
 import zipfile
 import shutil
@@ -114,8 +113,13 @@ def generar_excels(progress_bar):
                 errores += 1
                 continue
 
-            df_total = pd.concat([df_total, df], ignore_index=True)
-            archivos_procesados += 1
+            # Verificamos que el DataFrame no esté vacío antes de agregarlo
+            if not df.empty:
+                df_total = pd.concat([df_total, df], ignore_index=True)
+                archivos_procesados += 1
+            else:
+                registrar_log_local(f"El archivo {archivo} está vacío.")
+            
             progress_bar.progress((idx + 1) / len(archivos_txt))
 
         if not df_total.empty:
@@ -124,17 +128,29 @@ def generar_excels(progress_bar):
             total_filas = len(df_total)
             registrar_log_local(f"Excel generado: {output_path} ({total_filas} filas)")
         else:
-            registrar_log_local(f"No se generó ningún Excel para {dir_path} debido a errores.")
+            registrar_log_local(f"No se generó ningún Excel para {dir_path} debido a errores o archivos vacíos.")
 
     return archivos_procesados, errores
 
 # ======================
-# CREAR ZIPPED DIRECTORIOS PARA DESCARGA
+# CREAR UN ARCHIVO ZIP QUE CONTENGA TANTO TXT COMO XLSX
 # ======================
-def crear_zip_directorios():
-    zip_txt = shutil.make_archive(TXT_DIR, 'zip', TXT_DIR)
-    zip_xlsx = shutil.make_archive(XLSX_DIR, 'zip', XLSX_DIR)
-    return zip_txt, zip_xlsx
+def crear_zip_completo():
+    # Creamos un directorio temporal para agrupar los archivos .txt y .xlsx
+    zip_name = "./leads_completo.zip"
+    with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # Agregar archivos .txt
+        for root, dirs, files in os.walk(TXT_DIR):
+            for file in files:
+                if file.endswith(".txt"):
+                    zipf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), TXT_DIR))
+        # Agregar archivos .xlsx
+        for root, dirs, files in os.walk(XLSX_DIR):
+            for file in files:
+                if file.endswith(".xlsx"):
+                    zipf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), XLSX_DIR))
+    
+    return zip_name
 
 # ======================
 # STREAMLIT INTERFAZ
@@ -157,14 +173,13 @@ def run_streamlit_app():
             archivos_procesados, errores = generar_excels(progress_bar)
             st.write(f"Archivos Excel generados. Archivos procesados: {archivos_procesados}, Errores: {errores}")
 
-            # Paso 3: Crear los archivos comprimidos para la descarga
-            st.write("Creando archivos comprimidos para la descarga...")
-            zip_txt, zip_xlsx = crear_zip_directorios()
+            # Paso 3: Crear el archivo zip que contiene los .txt y .xlsx
+            st.write("Creando archivo comprimido con TXT y XLSX...")
+            zip_completo = crear_zip_completo()
 
-            # Paso 4: Enlaces de descarga
+            # Paso 4: Enlace de descarga del archivo zip
             st.write("Descarga disponible:")
-            st.download_button("Descargar TXT", zip_txt, file_name="txt_files.zip")
-            st.download_button("Descargar XLSX", zip_xlsx, file_name="xlsx_files.zip")
+            st.download_button("Descargar todos los archivos", zip_completo, file_name="leads_completo.zip")
 
         except Exception as e:
             st.error(f"Ocurrió un error durante el proceso: {e}")
